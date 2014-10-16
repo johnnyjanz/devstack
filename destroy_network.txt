@@ -1,0 +1,49 @@
+# Script to destroy network
+
+
+# Positional Arguments
+tenantname=$1
+
+
+source /home/jquijano/devstack/openrc $tenantname $tenantname
+
+
+
+instance_id=($(nova list | grep 'ACTIVE\|SHUTOFF' | awk '{print $2;}'))
+
+for n in "${instance_id[@]}"
+
+do
+   :
+   instance=$n
+   nova delete $instance
+done
+
+router_id=($(neutron router-list | grep 'router\|network_id' | awk '{print $2;}'))
+
+for n in "${router_id[@]}"
+
+do
+   :
+
+arr=($(neutron router-port-list $router_id | grep subnet | awk '{print $2;}'))
+
+for i in "${arr[@]}"
+do
+   :
+   port=$i
+   neutron router-interface-delete $router_id port=$port
+done
+  neutron router-gateway-clear $router_id
+  neutron router-delete $router_id
+done
+
+
+net_id=($(neutron net-list | grep 'net\|public'| awk '{print $2;}'))
+for i in "${net_id[@]}"
+
+do
+   :
+   net=$i
+   neutron net-delete $net
+done
