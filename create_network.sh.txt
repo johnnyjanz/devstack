@@ -1,0 +1,67 @@
+# Command line arguments position
+tenantname=$1
+privnetname=$2
+subnetspace=$3
+routername=$4
+secgroup=$5
+
+source /home/jquijano/devstack/openrc admin admin
+
+Create external network, floating ip
+if neutron net-list | grep -q "public"
+then
+       echo "External network already created. Proceeding with next command"
+else
+       neutron net-create public --router:external=True
+       neutron subnet-create public --disable-dhcp --gateway 172.24.4.1 172.24.4.0/24
+fi
+
+
+# Source credentials
+source /home/jquijano/devstack/openrc $tenantname $tenantname
+
+
+# Create new private network, subnet
+neutron net-create $privnetname
+neutron subnet-create $privnetname $subnetspace --name $privnetname
+
+
+# Create a router
+if neutron router-list | grep -q $routername
+then
+        echo "Router already created. Proceeding with next command"
+else
+        neutron router-create $routername
+fi
+
+# Associate the router to the external network
+# by setting its gateway.
+# NOTE: This assumes, the external network name is 'public'
+EXT_NET=$(neutron net-list | grep public | awk '{print $2;}')
+PRIV_SUBNET=$(neutron subnet-list | grep $privnetname | awk '{print $2;}')
+PRIV_NET=$(neutron net-list | grep $privnetname | awk '{print $2;}')
+ROUTER_ID=$(neutron router-list | grep $routername | awk '{print $2;}')
+neutron router-interface-add $ROUTER_ID $PRIV_SUBNET
+
+
+if neutron router-list | grep -q "null"
+then
+        neutron router-gateway-set $ROUTER_ID $EXT_NET
+else
+        echo "Router gateway already set. Proceeding with next command"
+fi
+
+
+# Add security groups for each network to separate them
+nova secgroup-create $secgroup "private security group"
+nova secgroup-add-rule $secgroup tcp 22 22 172.24.4.0/24
+nova secgroup-add-rule $secgroup tcp 22 22 $subnetspace
+nova secgroup-add-rule $secgroup icmp -1 -1 172.24.4.0/24
+nova secgroup-add-rule $secgroup icmp -1 -1 $subnetspace
+
+
+# Launch instances
+neutron floatingip-create public
+neutron floatingip-create public
+nova boot --flavor m1.tiny --image cirros-0.3.2-x86_64-uec --nic net-id=$PRIV_NET --security-group $secgroup $privnetname-cirros1
+nova boot --flavor m1.tiny --image cirros-0.3.2-x86_64-uec --nic net-id=$PRIV_NET --security-group $secgroup $privnetname-cirros2
